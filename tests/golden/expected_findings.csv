@@ -1,0 +1,16 @@
+vendor_code,ref_type,ref,category,status,recoverable_usd_cents,expired_usd_cents,match_tier,note
+G0001,deduction,SC100000001,SHORTAGE,CLAIMABLE,1000,0,exact,POD shows 3 of 3 cartons delivered
+G0001,deduction,SC100000002,SHORTAGE,NOT_CLAIMABLE,0,0,canonical,POD shows 4 of 5 cartons: valid shortage
+G0001,deduction,SC100000003,SHORTAGE,INSUFFICIENT_EVIDENCE,0,0,exact,no proof of delivery for the shipment
+G0001,deduction,PC100000001,PRICE_CLAIM,CLAIMABLE,720,0,suffix,"digits-only reference, invoiced at PO cost"
+G0001,deduction,PC100000002,PRICE_CLAIM,NOT_CLAIMABLE,0,0,exact,invoiced 10.50 above PO cost 10.00
+G0001,deduction,CB100000001,CHARGEBACK_LATE_SHIPMENT,CLAIMABLE,2500,0,fuzzy,"PO typo resolved; shipped 03-10, window 03-12"
+G0001,deduction,CB100000002,CHARGEBACK_ASN,NOT_CLAIMABLE,0,0,canonical,ASN sent two days after shipping
+G0001,deduction,SC100000004,DUPLICATE_DEDUCTION,CLAIMABLE,1000,0,duplicate,repeat of SC100000001
+G0001,deduction,SC100000005,SHORTAGE,NEEDS_REVIEW,0,0,ambiguous,1001 ends two invoice numbers
+G0001,deduction,SC100000006,SHORTAGE,ALREADY_RECOVERED,0,0,exact,reversed in full by RV100000001
+G0001,deduction,PC100000003,PRICE_CLAIM,CLAIMABLE,560,0,exact,9.60 minus 4.00 partial reversal
+G0001,deduction,SC100000007,SHORTAGE,EXPIRED,0,1000,exact,past the 365-day dispute window
+G0001,invoice,INV-0005001,UNPAID_INVOICE,CLAIMABLE,20000,0,,never paid
+G0001,invoice,INV-0006001,UNDERPAYMENT,CLAIMABLE,1000,0,,paid 90.00 of 100.00
+G0002,invoice,AB-000123,FX_VARIANCE,CLAIMABLE,3343,0,,applied rate 3 % worse than ECB

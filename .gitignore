@@ -1,0 +1,15 @@
+# Environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+
+# Raw downloads (large; re-create with `vre fetch`)
+data/raw/
+
+# Generated worlds and run outputs (re-create with `vre generate` / `vre run`)
+data/world*/
+out*/

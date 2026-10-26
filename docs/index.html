@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vendor Recovery Engine · results</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E">
+<meta name="description" content="Reconciliation engine for Amazon Vendor Central deductions: 2.7M rows from 170 vendors, every finding traceable to its source row, scored against ground truth.">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6e69;
+    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,.10); --wash: rgba(11,11,11,.04);
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --neutral: #c3c2b7;
+    --good: #006300; --accent: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a998f;
+      --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,.10); --wash: rgba(255,255,255,.05);
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --neutral: #55544f;
+      --good: #0ca30c; --accent: #3987e5;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a998f;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,.10); --wash: rgba(255,255,255,.05);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --neutral: #55544f;
+    --good: #0ca30c; --accent: #3987e5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); }
+  code { font: 13px "Cascadia Mono", Consolas, monospace; background: var(--wash); padding: 1px 5px; border-radius: 4px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 16px 64px; }
+  header h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.15; margin: 0 0 8px; letter-spacing: -.02em; }
+  header p { margin: 0; color: var(--ink-2); max-width: 800px; }
+  .meta { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0 8px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 14px 16px; }
+  .tile b { display: block; font-size: 28px; line-height: 1.1; letter-spacing: -.02em; }
+  .tile span { font-size: 13px; color: var(--ink-2); }
+  .tile.good b { color: var(--good); }
+  section { margin-top: 40px; }
+  h2 { font-size: 22px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .lead { margin: 0 0 16px; color: var(--ink-2); max-width: 800px; }
+  .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 18px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink-2); }
+  svg .lbl { fill: var(--ink); font-size: 13px; }
+  svg .val { fill: var(--ink); font-variant-numeric: tabular-nums; }
+  svg .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .hit { fill: transparent; } .hit:hover, .hit:focus { fill: var(--wash); outline: none; }
+  #tip { position: fixed; pointer-events: none; z-index: 10; max-width: 320px; background: var(--surface); color: var(--ink); border: 1px solid var(--ring); box-shadow: 0 6px 24px rgba(0,0,0,.14); border-radius: 10px; padding: 9px 11px; font-size: 13px; line-height: 1.4; opacity: 0; transition: opacity .1s; }
+  #tip b { display: block; margin-bottom: 2px; }
+  #tip .row { display: flex; justify-content: space-between; gap: 14px; }
+  #tip .row span:last-child { font-variant-numeric: tabular-nums; }
+  select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 8px; padding: 7px 10px; max-width: 100%; }
+  .vhead { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12.5px; border: 1px solid var(--ring); border-radius: 999px; padding: 2px 9px; color: var(--ink-2); }
+  .claims { display: grid; gap: 8px; }
+  .claim { border: 1px solid var(--ring); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: 1fr auto; gap: 2px 14px; }
+  .claim .amt { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+  .claim .why { grid-column: 1 / -1; color: var(--ink-2); font-size: 14px; }
+  .claim .ev { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); }
+  .claim .ev code { font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .table-wrap { overflow-x: auto; }
+  th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
+  .bugs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .bug { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 14px 16px; font-size: 14px; }
+  .bug h3 { font-size: 15px; margin: 0 0 6px; }
+  .bug .before { color: var(--s2); font-weight: 600; }
+  .bug .after { color: var(--good); font-weight: 600; }
+  .bug p { margin: 6px 0 0; color: var(--ink-2); }
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; font-size: 13.5px; }
+  .flow div { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 10px 12px; position: relative; }
+  .flow b { display: block; margin-bottom: 2px; }
+  .flow span { color: var(--ink-2); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .two ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); }
+  footer { margin-top: 48px; font-size: 13px; color: var(--muted); }
+  @media (max-width: 820px) {
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+    .bugs, .two { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Vendor Recovery Engine</h1>
+    <p>Amazon takes deductions from vendor payments: shortages, price claims, chargebacks. Many are wrong, and nobody checks them in time. This engine reconciles every deduction and payment against the vendor's own records and says, for each one, whether it can be disputed, why, and which file row proves it.</p>
+    <div class="meta">Results of one run on a <b>synthetic</b> world built on <b>real public data</b> · as of <span id="asof"></span> · <a href="https://github.com/jmnzcn/vendor-recovery-engine">source on GitHub</a> · by Ney Fred Jiménez Campos</div>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section>
+    <h2>Where the money is</h2>
+    <p class="lead">Recoverable now versus lost because the dispute window closed before anyone looked. Hover a bar for the numbers.</p>
+    <div class="card">
+      <div class="legend"><span><i style="background:var(--s1)"></i>Recoverable now</span><span><i style="background:var(--s2)"></i>Past the dispute window</span></div>
+      <div id="money"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Every deduction gets a verdict</h2>
+    <p class="lead">Most deductions are valid and the engine says so. A claim is only made when the vendor's records prove it; when they can't, the finding says what is missing instead of guessing.</p>
+    <div class="card">
+      <div class="legend" id="status-legend"></div>
+      <div id="status"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Look at one vendor</h2>
+    <p class="lead">The largest claims for the selected vendor, each with the rule that decided it, the evidence, and the exact file and row it comes from.</p>
+    <div class="card">
+      <div class="vhead"><select id="vendor" aria-label="Vendor"></select><div class="chips" id="vchips"></div></div>
+      <div class="claims" id="claims"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Scored against ground truth</h2>
+    <p class="lead">The generator records the right answer for every deduction it creates; the engine never sees it. This run used a seed that was never used during development.</p>
+    <div class="card table-wrap"><table id="score"></table></div>
+  </section>
+
+  <section>
+    <h2>Three real bugs the evaluation caught</h2>
+    <p class="lead">A perfect score on its own benchmark proves consistency, not truth. The value of the benchmark showed when it failed:</p>
+    <div class="bugs">
+      <div class="bug"><h3>Paid invoices that looked unpaid</h3>Remittances quoting the PO number instead of the invoice number.<p><span class="before">94.95 % precision, $88,757 in false claims</span> → match payments by PO when that PO has a single invoice → <span class="after">100 %, $0</span></p></div>
+      <div class="bug"><h3>European number formats</h3><code>1.234,50</code> was read as <code>1.2345</code> with no error; <code>31.12.2025</code> dates were rejected.<p><span class="before">98.01 % recall, $2,669 missed</span> → detect the decimal separator per column, per file → <span class="after">100 %</span></p></div>
+      <div class="bug"><h3>A typo two edits away</h3>Removing leading zeros turned PO <code>MJPYNQ05</code> into <code>MJPYNQ5</code>, so the typo <code>MJPYNQ0V</code> stopped matching. Found on the holdout run.<p><span class="before">5 wrong verdicts hidden by a rounded "100.00 %"</span> → fuzzy match on raw characters, print exact mismatch counts → <span class="after">0 of 112,330</span></p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How it works</h2>
+    <div class="flow">
+      <div><b>1 · Ingest</b><span>Parquet, CSV and Excel; any header style; US and EU formats. Bad rows go to quarantine with the reason and line number.</span></div>
+      <div><b>2 · Validate</b><span>Schema contracts per table (pandera), shaped like the SP-API vendor models.</span></div>
+      <div><b>3 · Match</b><span>Exact → normalized → digit suffix → one-typo fuzzy. Two candidates means review, never a guess.</span></div>
+      <div><b>4 · Decide</b><span>POD vs shortages, invoice vs PO cost, ship dates vs windows, ECB rates vs applied FX, reversals, duplicates, deadlines.</span></div>
+      <div><b>5 · Report</b><span>Excel workbook, PDF summary and a dispute-ready CSV per vendor, every line traceable.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What is real and what is synthetic</h2>
+    <div class="two">
+      <div class="card"><b>Real public data</b><ul><li><b>UCI Online Retail II</b> (CC BY 4.0): 1.07M real transaction lines → product catalog, unit costs, order quantities, cancellation rates.</li><li><b>ECB reference rates</b>: real daily EUR, GBP, CAD, MXN and JPY rates for every FX check.</li><li><b>Amazon SP-API vendor models</b>: column names and shapes for orders, shipments and invoices.</li></ul></div>
+      <div class="card"><b>Synthetic, with known answers</b><ul><li>170 vendors (made-up names: no real company is attached to a fabricated claim).</li><li>Deductions, remittances and proofs of delivery, with discrepancies injected on purpose and recorded in a ground-truth table.</li><li>Real-world mess: mixed formats, glued exports, duplicated rows, truncated and mistyped references.</li></ul></div>
+    </div>
+  </section>
+
+  <footer>Dispute windows (365 days) and tolerances are configurable assumptions, not Amazon policy. Numbers on this page come from <code>scripts/build_site.py</code> run on the engine's output.</footer>
+</div>
+<div id="tip" role="status" aria-live="polite"></div>
+<script>
+const LABEL = { SHORTAGE: 'Shortage claims', PRICE_CLAIM: 'Price claims', CHARGEBACK_LATE_SHIPMENT: 'Late-shipment chargebacks', CHARGEBACK_ASN: 'ASN chargebacks', DUPLICATE_DEDUCTION: 'Duplicate deductions', UNDERPAYMENT: 'Underpayments', UNPAID_INVOICE: 'Unpaid invoices', FX_VARIANCE: 'Exchange-rate variances' };
+const STATUS = [
+  ['CLAIMABLE', 'Claimable', 'var(--s1)'], ['ALREADY_RECOVERED', 'Already reversed by Amazon', 'var(--s3)'],
+  ['EXPIRED', 'Past the dispute window', 'var(--s2)'], ['NEEDS_REVIEW', 'Ambiguous reference: review', 'var(--s4)'],
+  ['INSUFFICIENT_EVIDENCE', 'Insufficient evidence', 'var(--s5)'], ['NOT_CLAIMABLE', 'Valid deduction', 'var(--neutral)'],
+];
+const usd = (c, d = 0) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const num = (n) => n.toLocaleString('en-US');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const NS = 'http://www.w3.org/2000/svg';
+const el = (t, a = {}, p) => { const e = document.createElementNS(NS, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (p) p.appendChild(e); return e; };
+const widthOf = (id) => Math.max(300, Math.round(document.getElementById(id).clientWidth));
+const tip = document.getElementById('tip');
+function bindTip(node, html) {
+  node.setAttribute('tabindex', '0');
+  const show = (e) => { tip.innerHTML = html(); tip.style.opacity = 1; const r = node.getBoundingClientRect();
+    const x = e.clientX ?? r.left + r.width / 2, y = e.clientY ?? r.top; const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.min(innerWidth - w - 8, Math.max(8, x + 14)) + 'px'; tip.style.top = (y - h - 12 < 8 ? y + 18 : y - h - 12) + 'px'; };
+  node.addEventListener('mousemove', show); node.addEventListener('focus', show);
+  node.addEventListener('mouseleave', () => (tip.style.opacity = 0)); node.addEventListener('blur', () => (tip.style.opacity = 0));
+}
+const rows = (p) => p.map(([a, b]) => `<div class="row"><span>${a}</span><span>${b}</span></div>`).join('');
+
+fetch('site/data.json').then((r) => r.json()).then(init).catch((e) => {
+  document.querySelector('.wrap').insertAdjacentHTML('afterbegin', `<p class="card">Could not load the data (${esc(e.message)}).</p>`);
+});
+
+function init(D) {
+  document.getElementById('asof').textContent = D.as_of;
+  const sc = D.scorecard;
+  document.getElementById('tiles').innerHTML = [
+    [usd(D.recoverable), `recoverable now across ${num(D.claims)} claims`],
+    [usd(D.expired), 'lost to the dispute window'],
+    [num(D.rows), `rows from ${D.vendors} vendors, reconciled in about a minute`],
+    [num(sc.rows_truth), `verdicts, all matching ground truth · ${usd(sc.false_claim_usd * 100)} in false claims`, 'good'],
+  ].map(([b, s, c]) => `<div class="tile ${c || ''}"><b>${b}</b><span>${s}</span></div>`).join('');
+
+  const cats = [...D.by_category].sort((a, b) => b.recoverable - a.recoverable);
+
+  function renderMoney() {
+    const W = widthOf('money'), narrow = W < 560, rowH = narrow ? 56 : 38, left = narrow ? 0 : 200, right = 110;
+    const H = cats.length * rowH + 28, max = Math.max(...cats.map((c) => c.recoverable + c.expired)) * 1.02;
+    const x = (v) => left + v / max * (W - left - right);
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Recoverable and expired dollars by category' });
+    const step = max > 40000000 ? 10000000 : 5000000;
+    for (let v = 0; v <= max; v += step) {
+      el('line', { x1: x(v), x2: x(v), y1: 0, y2: H - 22, stroke: v ? 'var(--grid)' : 'var(--axis)' }, svg);
+      el('text', { x: x(v), y: H - 6, 'text-anchor': 'middle', class: 'tick' }, svg).textContent = v ? '$' + v / 100000 + 'k' : '$0';
+    }
+    cats.forEach((c, i) => {
+      const ly = i * rowH + 6, y = narrow ? ly + 20 : ly, h = 20;
+      el('text', { x: 0, y: ly + (narrow ? 10 : 15), class: 'lbl' }, svg).textContent = LABEL[c.category];
+      const w1 = x(c.recoverable) - x(0), w2 = x(c.recoverable + c.expired) - x(c.recoverable);
+      el('rect', { x: x(0), y, width: Math.max(1, w1 - 2), height: h, rx: 4, fill: 'var(--s1)' }, svg);
+      if (w2 > 1) el('rect', { x: x(c.recoverable), y, width: w2, height: h, rx: 4, fill: 'var(--s2)' }, svg);
+      el('text', { x: x(c.recoverable + c.expired) + 8, y: y + 15, class: 'val' }, svg).textContent = usd(c.recoverable);
+      const hit = el('rect', { x: 0, y: ly - 4, width: W, height: rowH - 2, class: 'hit' }, svg);
+      bindTip(hit, () => `<b>${LABEL[c.category]}</b>${rows([['Findings', num(c.findings)], ['Claims', num(c.claims)], ['Recoverable now', usd(c.recoverable, 2)], ['Past the window', usd(c.expired, 2)]])}`);
+    });
+    const box = document.getElementById('money'); box.innerHTML = ''; box.appendChild(svg);
+  }
+
+  document.getElementById('status-legend').innerHTML = STATUS.map(([, l, c]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
+  const byCat = {};
+  D.by_status.forEach((r) => { (byCat[r.category] ||= {})[r.status] = r.n; });
+  function renderStatus() {
+    const W = widthOf('status'), narrow = W < 560, rowH = narrow ? 56 : 38, left = narrow ? 0 : 200, right = 70;
+    const order = cats.map((c) => c.category), H = order.length * rowH + 26;
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Share of findings by verdict, per category' });
+    const x = (f) => left + f * (W - left - right);
+    [0, .25, .5, .75, 1].forEach((f) => {
+      el('line', { x1: x(f), x2: x(f), y1: 0, y2: H - 22, stroke: f ? 'var(--grid)' : 'var(--axis)' }, svg);
+      el('text', { x: x(f), y: H - 6, 'text-anchor': 'middle', class: 'tick' }, svg).textContent = f * 100 + '%';
+    });
+    order.forEach((cat, i) => {
+      const counts = byCat[cat] || {}, total = Object.values(counts).reduce((a, b) => a + b, 0);
+      const ly = i * rowH + 6, y = narrow ? ly + 20 : ly;
+      el('text', { x: 0, y: ly + (narrow ? 10 : 15), class: 'lbl' }, svg).textContent = LABEL[cat];
+      let acc = 0;
+      STATUS.forEach(([k, l, color]) => {
+        const n = counts[k] || 0; if (!n) return;
+        const x0 = x(acc / total), x1 = x((acc + n) / total);
+        const r = el('rect', { x: x0, y, width: Math.max(1, x1 - x0 - 2), height: 20, rx: 3, fill: color }, svg);
+        bindTip(r, () => `<b>${LABEL[cat]}</b>${rows([[l, num(n)], ['Share', (n / total * 100).toFixed(1) + '%']])}`);
+        acc += n;
+      });
+      el('text', { x: W - right + 8, y: y + 15, class: 'val' }, svg).textContent = num(total);
+    });
+    const box = document.getElementById('status'); box.innerHTML = ''; box.appendChild(svg);
+  }
+
+  const sel = document.getElementById('vendor');
+  D.vendors_list.forEach((v, i) => sel.add(new Option(`${v.name} (${v.code}) · ${usd(v.recoverable)}`, i)));
+  function renderVendor() {
+    const v = D.vendors_list[+sel.value];
+    const st = v.status;
+    document.getElementById('vchips').innerHTML = [
+      `${usd(v.recoverable)} recoverable`, `${num(v.claims)} claims`, `${num(st.NOT_CLAIMABLE || 0)} valid`,
+      `${num(st.INSUFFICIENT_EVIDENCE || 0)} insufficient evidence`, `${num(st.NEEDS_REVIEW || 0)} to review`,
+      `exports: ${v.format.toUpperCase()} · ${v.currency}`,
+    ].map((c) => `<span class="chip">${c}</span>`).join('');
+    document.getElementById('claims').innerHTML = v.top.map(([ref, cat, cents, by, tier, why, ev, src]) => `
+      <div class="claim"><div><b>${esc(ref)}</b> · ${LABEL[cat]} · dispute by ${by}${tier && tier !== 'exact' ? ` · matched by <i>${tier}</i>` : ''}</div>
+      <div class="amt">${usd(cents, 2)}</div><div class="why">${esc(why)}</div>
+      <div class="ev">${ev ? esc(ev) + ' · ' : ''}source <code>${esc(src)}</code></div></div>`).join('');
+  }
+  sel.addEventListener('change', renderVendor);
+
+  const sbc = [...D.scorecard_by_category].sort((a, b) => b.recovered_usd - a.recovered_usd);
+  document.getElementById('score').innerHTML = `<thead><tr><th>Category</th><th>Findings</th><th>Claimable (truth)</th><th>Precision</th><th>Recall</th><th>Recovered</th><th>False claims</th></tr></thead><tbody>${
+    sbc.map((r) => `<tr><td>${LABEL[r.category]}</td><td>${num(r.truth_rows)}</td><td>${num(r.claimable_true)}</td><td>${(r.precision * 100).toFixed(2)}%</td><td>${(r.recall * 100).toFixed(2)}%</td><td>${usd(r.recovered_usd * 100)}</td><td>${usd(r.false_claim_usd * 100)}</td></tr>`).join('')
+  }<tr><td><b>All</b></td><td><b>${num(sc.rows_truth)}</b></td><td></td><td><b>${(sc.claimable_precision * 100).toFixed(2)}%</b></td><td><b>${(sc.claimable_recall * 100).toFixed(2)}%</b></td><td><b>${usd(sc.recovered_usd * 100)}</b></td><td><b>${usd(sc.false_claim_usd * 100)}</b></td></tr></tbody>`;
+
+  renderMoney(); renderStatus(); renderVendor();
+  let lastW = innerWidth, timer;
+  addEventListener('resize', () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(timer); timer = setTimeout(() => { renderMoney(); renderStatus(); }, 150); });
+}
+</script>
+</body>
+</html>
