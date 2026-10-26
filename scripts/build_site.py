@@ -44,6 +44,24 @@ def main(out: Path, world: Path) -> None:
         })
     per_vendor.sort(key=lambda v: -v["recoverable"])
 
+    # Recoverable money by the month its dispute window closes
+    claims = f[f["status"] == "CLAIMABLE"]
+    by_month = (claims.assign(month=claims["dispute_deadline"].dt.strftime("%Y-%m"))
+                .groupby("month").agg(claims=("ref", "size"), recoverable=("recoverable_usd_cents", "sum"),
+                                       urgent=("urgent", "sum")).reset_index())
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+
+    drafts = {}
+    if (out / "drafts" / "summary.json").exists():
+        drafts = json.loads((out / "drafts" / "summary.json").read_text(encoding="utf-8"))
+        letters = pd.read_json(out / "drafts" / "drafts.jsonl", lines=True)
+        sample = letters[letters["category"].isin(["SHORTAGE", "FX_VARIANCE"]) & letters["passed"]]
+        drafts["samples"] = sample.groupby("category").head(1)[["ref", "category", "draft"]].to_dict("records")
+    robustness = {}
+    if (ROOT / "docs" / "site" / "robustness.json").exists():
+        robustness = json.loads((ROOT / "docs" / "site" / "robustness.json").read_text(encoding="utf-8"))
+        robustness.pop("runs", None)
+
     data = {
         "as_of": meta["policy"]["as_of"], "seed": meta["config"]["seed"],
         "rows": meta["observed_rows_total"], "rows_by_table": meta["rows"],
@@ -56,6 +74,10 @@ def main(out: Path, world: Path) -> None:
                                             "recovered_usd", "review_routed", "review_true")},
         "scorecard_by_category": score["by_category"],
         "quality": quality,
+        "urgent_usd": summary["urgent_usd"], "urgent_claims": summary["urgent_claims"],
+        "expected_value_usd": summary["expected_value_usd"],
+        "by_deadline_month": by_month.to_dict("records"),
+        "drafts": drafts, "robustness": robustness,
         "vendors_list": per_vendor,
     }
     dest = ROOT / "docs" / "site" / "data.json"

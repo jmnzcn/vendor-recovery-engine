@@ -27,11 +27,13 @@ from vre.policy import (
     Policy,
     Status,
 )
+from vre.triage import prioritize
 
 FINDING_COLUMNS = [
     "vendor_code", "ref_type", "ref", "category", "status", "recoverable_usd_cents", "expired_usd_cents",
     "amount_cents", "currency", "event_date", "dispute_deadline", "match_tier", "matched_record",
     "reason", "evidence", "source_file", "source_row",
+    "days_left", "win_rate", "expected_value_usd_cents", "urgent", "priority_rank",
 ]
 
 
@@ -351,7 +353,8 @@ class Reconciler:
 
     def run(self) -> Result:
         findings = pd.concat([self.deductions(), self.payments()], ignore_index=True)
-        findings = findings[FINDING_COLUMNS].copy()
+        findings["recoverable_usd_cents"] = findings["recoverable_usd_cents"].fillna(0).astype("int64")
+        findings = prioritize(findings, self.policy)[FINDING_COLUMNS].copy()
         for c in ("category", "status"):
             findings[c] = findings[c].astype(str)
         findings["recoverable_usd_cents"] = findings["recoverable_usd_cents"].fillna(0).astype("int64")

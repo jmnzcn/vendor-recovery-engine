@@ -64,6 +64,13 @@ class WorldConfig:
     seed: int = 7
     start: str = "2025-03-01"
     end: str = "2026-06-30"
+    # Evidence and reference degradation: 0 = every record and reference intact, 1 = the default
+    # world, 5 = five times as many missing PODs, missing shipment records, truncated or
+    # mistyped references. Format mess (headers, EU numbers, junk rows) is always on.
+    noise: float = 1.0
+
+    def rate(self, base: float, cap: float = 0.6) -> float:
+        return min(cap, base * self.noise)
 
     @classmethod
     def small(cls, vendors: int = 12, po_lines: int = 40_000, seed: int = 7) -> WorldConfig:
@@ -101,6 +108,9 @@ class WorldBuilder:
     def __init__(self, cfg: WorldConfig, policy: Policy):
         self.cfg, self.policy = cfg, policy
         self.rng = np.random.default_rng(cfg.seed)
+        # A separate stream for evidence loss and reference mess: changing `noise` degrades the
+        # same underlying world instead of drawing a different one
+        self.noise_rng = np.random.default_rng([cfg.seed, 1])
         self.as_of = pd.Timestamp(policy.as_of)
         self.catalog = pd.read_parquet(SEEDS_DIR / "catalog.parquet")
         self.real_lines = pd.read_parquet(SEEDS_DIR / "order_lines.parquet")
@@ -207,7 +217,7 @@ class WorldBuilder:
             late=late,
             shippedDate=pd.to_datetime(shipped),
             asn_late=rng.random(n) < 0.05,
-            shipment_observed=rng.random(n) >= 0.01,
+            shipment_observed=self.noise_rng.random(n) >= self.cfg.rate(0.01),
             shipmentIdentifier=_codes(rng, n, 10),
             billOfLadingNumber=_codes(rng, n, 12),
         )
@@ -220,12 +230,15 @@ class WorldBuilder:
                                             lines["orderedQuantity"])
         units = lines.groupby("purchaseOrderNumber")["shippedQuantity"].sum()
         pos["cartonCount"] = np.ceil(pos["purchaseOrderNumber"].map(units) / CARTON_UNITS).astype(int).clip(lower=1)
-        pos["pod_state"] = rng.choice(["full", "short", "missing"], n, p=[0.88, 0.06, 0.06])
+        # What really arrived, and whether the carrier's proof of delivery made it into the exports
+        pos["delivery"] = rng.choice(["full", "short"], n, p=[0.936, 0.064])
         pos["deliveredDate"] = pos["shippedDate"] + _days(rng, 2, 6, n)
         short_by = np.minimum(pos["cartonCount"] - 1, rng.integers(1, 4, n))
-        pos["cartonsDelivered"] = np.where((pos["pod_state"] == "short") & (short_by > 0),
+        pos["cartonsDelivered"] = np.where((pos["delivery"] == "short") & (short_by > 0),
                                            pos["cartonCount"] - short_by, pos["cartonCount"])
-        pos.loc[(pos["pod_state"] == "short") & (pos["cartonsDelivered"] == pos["cartonCount"]), "pod_state"] = "full"
+        pos.loc[pos["cartonsDelivered"] == pos["cartonCount"], "delivery"] = "full"
+        pod_seen = self.noise_rng.random(n) >= self.cfg.rate(0.06)
+        pos["pod_state"] = np.where(pod_seen, pos["delivery"], "missing")
         pos["podDocumentId"] = "POD-" + pd.Series(_codes(rng, n, 9), index=pos.index)
 
         # One invoice per PO, numbered in the vendor's own style
@@ -256,11 +269,12 @@ class WorldBuilder:
     def deductions(self, pos: pd.DataFrame, lines: pd.DataFrame) -> pd.DataFrame:
         rng = self.rng
         p = pos.set_index("purchaseOrderNumber")
-        L = lines.join(p[["pod_state", "shipment_observed", "late", "asn_late"]],
+        L = lines.join(p[["pod_state", "delivery", "shipment_observed", "late", "asn_late"]],
                        on="purchaseOrderNumber")
 
-        # Shortages: Amazon claims missing units. Odds depend on what the POD shows.
-        odds = L["pod_state"].map({"full": 0.03, "short": 0.55, "missing": 0.05}).to_numpy()
+        # Shortages: Amazon claims missing units, far more often when cartons really went missing.
+        # `status` is what the vendor can prove from its exports; `real_status` is what happened.
+        odds = L["delivery"].map({"full": 0.03, "short": 0.55}).to_numpy()
         s = L[rng.random(len(L)) < odds].copy()
         qty = np.minimum(s["shippedQuantity"], rng.integers(1, 2 * CASE_PACK, len(s)))
         short = pd.DataFrame({
@@ -273,6 +287,7 @@ class WorldBuilder:
             "status": np.select(
                 [~s["shipment_observed"] | (s["pod_state"] == "missing"), s["pod_state"] == "short"],
                 [Status.INSUFFICIENT_EVIDENCE.value, Status.NOT_CLAIMABLE.value], Status.CLAIMABLE.value),
+            "real_status": np.where(s["delivery"] == "short", Status.NOT_CLAIMABLE.value, Status.CLAIMABLE.value),
         })
 
         # Price claims: valid on over-billed lines, unsupported on a few correctly billed ones
@@ -294,6 +309,7 @@ class WorldBuilder:
             "currencyCode": pl["currencyCode"].to_numpy(),
             "deductionDate": (pl["invoiceDate"] + _days(rng, 20, 75, len(pl))).to_numpy(),
             "category": Category.PRICE_CLAIM.value, "status": price["status"].to_numpy(),
+            "real_status": price["status"].to_numpy(),
         })
 
         # Chargebacks at PO level
@@ -306,8 +322,6 @@ class WorldBuilder:
         ]:
             r = rng.random(len(po))
             hit = np.where(flag, r < valid_rate, r < bogus_rate)
-            missing_hit = ~po["shipment_observed"] & (r < 0.3)
-            hit = hit | missing_hit
             c = po[hit]
             status = np.select(
                 [~c["shipment_observed"], flag[hit]],
@@ -320,6 +334,7 @@ class WorldBuilder:
                 "currencyCode": c["currency"],
                 "deductionDate": c["shippedDate"] + _days(rng, 10, 45, len(c)),
                 "category": category.value, "status": status,
+                "real_status": np.where(flag[hit], Status.NOT_CLAIMABLE.value, Status.CLAIMABLE.value),
             }))
 
         d = pd.concat([short, price, *cb_frames], ignore_index=True)
@@ -333,7 +348,7 @@ class WorldBuilder:
         """Reference numbers as Amazon writes them: variants, truncations, typos, orphans.
         Labels each deduction NEEDS_REVIEW / INSUFFICIENT_EVIDENCE where a careful
         analyst could not resolve the reference."""
-        rng = self.rng
+        rng = self.noise_rng
         n = len(d)
         ref = d["true_ref"].astype(str).copy()
         kind = d["ref_kind"].to_numpy()
@@ -350,13 +365,14 @@ class WorldBuilder:
         ref[digits_only] = ref[digits_only].str.replace(r"\D", "", regex=True)
         ref[spaced] = ref[spaced].str[:4] + "-" + ref[spaced].str[4:]
 
-        truncated = is_inv & (u >= 0.20) & (u < 0.26)
+        t_rate, y_rate, o_rate = self.cfg.rate(0.06, 0.3), self.cfg.rate(0.04, 0.3), self.cfg.rate(0.005, 0.1)
+        truncated = is_inv & (u >= 0.20) & (u < 0.20 + t_rate)
         tlen = rng.integers(4, 6, n)
         digits = ref.str.replace(r"\D", "", regex=True)
         ref[truncated] = [s[-k:] for s, k in zip(digits[truncated], tlen[truncated], strict=True)]
 
-        typo = ~is_inv & (u >= 0.20) & (u < 0.24)
-        orphan = is_inv & (u >= 0.26) & (u < 0.265)
+        typo = ~is_inv & (u >= 0.20) & (u < 0.20 + y_rate)
+        orphan = is_inv & (u >= 0.20 + t_rate) & (u < 0.20 + t_rate + o_rate)
 
         status = d["status"].to_numpy().copy()
 
@@ -411,6 +427,7 @@ class WorldBuilder:
     def duplicates_and_reversals(self, d: pd.DataFrame) -> pd.DataFrame:
         rng = self.rng
         d = d.copy()
+        d["real_recoverable"] = np.where(d["real_status"] == Status.CLAIMABLE.value, d["amount"], 0)
         d["deductionNumber"] = ""
         prefix = d["deductionType"].map({DEDUCTION_SHORTAGE: "SC", DEDUCTION_PRICE: "PC",
                                          DEDUCTION_CHARGEBACK: "CB"})
@@ -426,11 +443,12 @@ class WorldBuilder:
         dup["category"] = Category.DUPLICATE_DEDUCTION.value
         dup["status"] = Status.CLAIMABLE.value
         dup["recoverable"] = dup["amount"]
+        dup["real_status"], dup["real_recoverable"] = Status.CLAIMABLE.value, dup["amount"]
         dup["is_duplicate"] = True
         d["is_duplicate"] = False
 
         # Amazon reverses some unsupported deductions on its own, in full or in part
-        cand = d[(d["status"] == Status.CLAIMABLE.value) & ~d.index.isin(dup_src.index)]
+        cand = d[(d["real_status"] == Status.CLAIMABLE.value) & ~d.index.isin(dup_src.index)]
         rev_src = cand[rng.random(len(cand)) < 0.15]
         partial = rng.random(len(rev_src)) < 0.2
         rev_amount = np.where(partial, np.round(rev_src["amount"] * rng.uniform(0.3, 0.7, len(rev_src))),
@@ -448,19 +466,26 @@ class WorldBuilder:
             "deductionNumber": "RV" + pd.Series(_unique_ints(rng, len(rev_src), 10**8, 10**9),
                                                 index=rev_src.index).astype(str),
         })[seen]
-        rev_amount_seen = pd.Series(rev_amount, index=rev_src.index)[seen]
-        d.loc[rev_amount_seen.index, "recoverable"] = d.loc[rev_amount_seen.index, "amount"] - rev_amount_seen
-        full = rev_amount_seen.index[d.loc[rev_amount_seen.index, "recoverable"] <= 0]
-        d.loc[full, "status"] = Status.ALREADY_RECOVERED.value
-        d.loc[full, "recoverable"] = 0
+        back = pd.Series(rev_amount, index=rev_src.index)[seen]
+        # In reality the reversal always counts; in the evidence view only where the claim is provable
+        for status_col, rec_col, idx in [
+            ("real_status", "real_recoverable", back.index),
+            ("status", "recoverable", back.index[d.loc[back.index, "status"] == Status.CLAIMABLE.value]),
+        ]:
+            d.loc[idx, rec_col] = d.loc[idx, "amount"] - back[idx]
+            full = idx[d.loc[idx, rec_col] <= 0]
+            d.loc[full, status_col] = Status.ALREADY_RECOVERED.value
+            d.loc[full, rec_col] = 0
 
         out = pd.concat([d, dup], ignore_index=True)
         # Past the dispute window: still worth reporting, no longer recoverable
         age = (self.as_of - out["deductionDate"]).dt.days
-        expired = (out["status"] == Status.CLAIMABLE.value) & (age > self.policy.deduction_window_days)
-        out.loc[expired, "status"] = Status.EXPIRED.value
-        out["expired_amount"] = np.where(expired, out["recoverable"], 0)
-        out.loc[expired, "recoverable"] = 0
+        for status_col, rec_col, exp_col in [("status", "recoverable", "expired_amount"),
+                                             ("real_status", "real_recoverable", "real_expired_amount")]:
+            expired = (out[status_col] == Status.CLAIMABLE.value) & (age > self.policy.deduction_window_days)
+            out.loc[expired, status_col] = Status.EXPIRED.value
+            out[exp_col] = np.where(expired, out[rec_col], 0)
+            out.loc[expired, rec_col] = 0
         return pd.concat([out, rev], ignore_index=True)
 
     # ------------------------------------------------------------------ payments
@@ -662,11 +687,14 @@ def generate(out: Path, cfg: WorldConfig | None = None, policy: Policy | None = 
             "category": td["category"], "status": td["status"],
             "recoverable_usd_cents": usd(td["recoverable"], td["currencyCode"], td["deductionDate"]),
             "expired_usd_cents": usd(td["expired_amount"], td["currencyCode"], td["deductionDate"]),
+            "real_status": td["real_status"],
+            "real_recoverable_usd_cents": usd(td["real_recoverable"], td["currencyCode"], td["deductionDate"]),
         }),
         pd.DataFrame({
             "vendor_code": pay_truth["vendor_code"], "ref_type": "invoice", "ref": pay_truth["ref"],
             "category": pay_truth["category"], "status": pay_truth["status"],
             "recoverable_usd_cents": pay_truth["recoverable"], "expired_usd_cents": pay_truth["expired_usd_cents"],
+            "real_status": pay_truth["status"], "real_recoverable_usd_cents": pay_truth["recoverable"],
         }),
     ], ignore_index=True)
     truth.to_parquet(truth_dir / "truth.parquet", index=False)

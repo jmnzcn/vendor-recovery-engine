@@ -61,3 +61,22 @@ def test_reports_are_written(world, result, tmp_path):
     code = vendors["vendor_code"].iat[0]
     assert (tmp_path / "vendors" / code / f"recovery_{code}.pdf").stat().st_size > 2000
     assert (tmp_path / "vendors" / code / f"recovery_{code}.xlsx").exists()
+
+
+def _score(tmp_path, noise):
+    out = tmp_path / f"n{noise}"
+    generate(out, WorldConfig(vendors=6, po_lines=15_000, seed=31, noise=noise))
+    findings = reconcile(load_vendor_dir(out / "observed", workers=1)).findings
+    return evaluate(findings, pd.read_parquet(out / "truth" / "truth.parquet"))
+
+
+def test_against_reality_noise_costs_recall_never_precision(tmp_path):
+    clean, noisy = _score(tmp_path, 0), _score(tmp_path, 5)
+    # Same underlying world: the real money at stake does not depend on the noise level
+    assert clean["real_recoverable_usd"] == noisy["real_recoverable_usd"]
+    assert clean["real_recall_usd"] == 1.0
+    assert noisy["real_recall_usd"] < 1.0
+    for ev in (clean, noisy):
+        assert ev["real_precision"] == 1.0 and ev["real_false_claim_usd"] == 0
+        assert len(ev["mismatches"]) == 0
+    assert set(noisy["real_missed_by_status_usd"]) <= {"INSUFFICIENT_EVIDENCE", "NEEDS_REVIEW"}

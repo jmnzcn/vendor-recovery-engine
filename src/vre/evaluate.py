@@ -42,7 +42,12 @@ def evaluate(findings: pd.DataFrame, truth: pd.DataFrame) -> dict:
 
     amount_exact = (j.loc[tp, "recoverable_usd_cents_true"] == j.loc[tp, "recoverable_usd_cents_pred"]).mean()
     confusion = pd.crosstab(j["status_true"], j["status_pred"])
+    reality = {}
+    if "real_status" in truth:
+        real_cols = truth[[*KEY, "real_status", "real_recoverable_usd_cents"]]
+        reality = against_reality(j.merge(real_cols, on=KEY, how="left"))
     return {
+        **reality,
         "rows_truth": int((j["_merge"] != "right_only").sum()),
         "rows_findings": int((j["_merge"] != "left_only").sum()),
         "missing_findings": int((j["_merge"] == "left_only").sum()),
@@ -62,4 +67,26 @@ def evaluate(findings: pd.DataFrame, truth: pd.DataFrame) -> dict:
         "confusion": confusion,
         "mismatches": j[(j["status_true"] != j["status_pred"]) | (tp & (j["recoverable_usd_cents_true"]
                                                                        != j["recoverable_usd_cents_pred"]))],
+    }
+
+
+def against_reality(j: pd.DataFrame) -> dict:
+    """Score against what really happened, not against what the exports can prove.
+
+    The generator knows whether cartons really arrived even when the proof of delivery is
+    missing, and which invoice a truncated reference really meant. A claim the engine makes
+    that is false in reality is a false claim; real money the engine could not prove is the
+    price of missing evidence, and this shows where it went (review, insufficient evidence).
+    """
+    claim = j["status_pred"] == Status.CLAIMABLE
+    real = j["real_status"] == Status.CLAIMABLE
+    real_usd = j["real_recoverable_usd_cents"].fillna(0)
+    missed = j[real & ~claim].groupby("status_pred")["real_recoverable_usd_cents"].sum() / 100
+    return {
+        "real_recoverable_usd": real_usd[real].sum() / 100,
+        "real_precision": float((claim & real).sum() / claim.sum()) if claim.sum() else 1.0,
+        "real_false_claim_usd": j.loc[claim & ~real, "recoverable_usd_cents_pred"].sum() / 100,
+        "real_recall_usd": float(j.loc[claim & real, "recoverable_usd_cents_pred"].sum() / real_usd[real].sum())
+        if real.any() else 1.0,
+        "real_missed_by_status_usd": {k: round(float(v), 2) for k, v in missed.items()},
     }

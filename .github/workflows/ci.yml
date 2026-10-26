@@ -36,13 +36,18 @@ jobs:
       - run: vre generate data/world --vendors 40 --po-lines 200000 --seed ${{ github.run_number }}
       - run: vre run data/world/observed --out out --pdf-top 3
       - run: vre evaluate out/findings.parquet data/world/truth/truth.parquet --out out/scorecard.json
+      - run: vre drafts out/findings.parquet --vendors data/world/vendors.csv --n 120 --out out/drafts --template
       - name: Fail on any disagreement with the ground truth
         run: |
           python - <<'PY'
           import json, sys
           s = json.load(open("out/scorecard.json"))
           print({k: s[k] for k in ("verdict_mismatches", "claimable_precision", "claimable_recall", "false_claim_usd")})
-          sys.exit(0 if s["verdict_mismatches"] == 0 and s["false_claim_usd"] == 0 else 1)
+          d = json.load(open("out/drafts/summary.json"))
+          print({k: d[k] for k in ("drafted", "passed", "mutations", "mutations_caught")})
+          ok = s["verdict_mismatches"] == 0 and s["false_claim_usd"] == 0
+          ok = ok and s["real_precision"] == 1.0 and d["mutations_caught"] == d["mutations"] and d["rejected"] == 0
+          sys.exit(0 if ok else 1)
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -50,4 +55,5 @@ jobs:
           path: |
             out/scorecard.json
             out/summary.json
+            out/drafts/summary.json
             out/vendors/*/recovery_*.pdf

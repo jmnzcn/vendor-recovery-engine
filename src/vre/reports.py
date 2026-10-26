@@ -15,6 +15,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from vre.policy import Category, Status
+from vre.triage import queue_summary
 
 CATEGORY_LABEL = {
     Category.SHORTAGE: "Shortage claims", Category.PRICE_CLAIM: "Price claims",
@@ -46,12 +47,14 @@ def summarize(findings: pd.DataFrame) -> pd.DataFrame:
 
 
 def dispute_csv(findings: pd.DataFrame, path: Path) -> pd.DataFrame:
-    c = findings[findings["status"] == Status.CLAIMABLE].sort_values("dispute_deadline")
+    c = findings[findings["status"] == Status.CLAIMABLE].sort_values("priority_rank")
     out = pd.DataFrame({
+        "priority": c["priority_rank"], "urgent": c["urgent"], "days_left": c["days_left"],
         "reference_type": c["ref_type"], "reference": c["ref"], "category": c["category"],
         "dispute_amount": c["amount_cents"].where(c["ref_type"] == "deduction", c["recoverable_usd_cents"]) / 100,
         "currency": c["currency"].where(c["ref_type"] == "deduction", "USD"),
         "recoverable_usd": c["recoverable_usd_cents"] / 100,
+        "expected_value_usd": c["expected_value_usd_cents"] / 100,
         "dispute_by": c["dispute_deadline"].dt.strftime("%Y-%m-%d"),
         "reason": c["reason"], "evidence": c["evidence"],
         "source": c["source_file"] + ":" + c["source_row"].astype("Int64").astype(str),
@@ -93,7 +96,10 @@ def excel(findings: pd.DataFrame, vendor: dict, quality: pd.DataFrame, path: Pat
     ws.append(["Recoverable now", findings["recoverable_usd_cents"].sum() / 100])
     ws.append(["Lost to the dispute window", findings["expired_usd_cents"].sum() / 100])
     ws.append(["Claims ready to file", int((findings["status"] == Status.CLAIMABLE).sum())])
-    for r in (4, 5):
+    q = queue_summary(findings)
+    ws.append(["Expiring in the next 30 days", q["urgent_usd"]])
+    ws.append(["Expected value of all claims", q["expected_value_usd"]])
+    for r in (4, 5, 7, 8):
         ws.cell(r, 2).number_format = '"$"#,##0.00'
         ws.cell(r, 1).font = Font(bold=True)
     ws.append([])
@@ -110,20 +116,22 @@ def excel(findings: pd.DataFrame, vendor: dict, quality: pd.DataFrame, path: Pat
     for col, w in zip("ABCDE", (34, 12, 12, 20, 18), strict=True):
         ws.column_dimensions[col].width = w
 
-    cols = ["ref_type", "ref", "category", "status", "recoverable_usd", "amount", "currency", "dispute_deadline",
-            "match_tier", "reason", "evidence", "source_file", "source_row"]
+    cols = ["priority_rank", "urgent", "days_left", "ref_type", "ref", "category", "status", "recoverable_usd",
+            "expected_value_usd", "amount", "currency", "dispute_deadline", "match_tier", "reason", "evidence",
+            "source_file", "source_row"]
     f = findings.assign(recoverable_usd=findings["recoverable_usd_cents"] / 100,
+                        expected_value_usd=findings["expected_value_usd_cents"] / 100,
                         amount=findings["amount_cents"] / 100,
                         dispute_deadline=findings["dispute_deadline"].dt.strftime("%Y-%m-%d"))[cols]
     wide = {"reason": 60, "evidence": 70, "source_file": 26}
     for title, mask in [
-        ("Claims", f["status"] == Status.CLAIMABLE),
+        ("Work queue", f["status"] == Status.CLAIMABLE),
         ("Needs review", f["status"] == Status.NEEDS_REVIEW),
         ("Insufficient evidence", f["status"] == Status.INSUFFICIENT_EVIDENCE),
         ("All findings", pd.Series(True, index=f.index)),
     ]:
-        sub = f[mask].sort_values("dispute_deadline") if title == "Claims" else f[mask]
-        _sheet(wb.create_sheet(title), sub, {"recoverable_usd"}, wide)
+        sub = f[mask].sort_values("priority_rank") if title == "Work queue" else f[mask]
+        _sheet(wb.create_sheet(title), sub, {"recoverable_usd", "expected_value_usd"}, wide)
     _sheet(wb.create_sheet("Data quality"), quality, set())
     wb.save(path)
 
@@ -151,13 +159,17 @@ def pdf(findings: pd.DataFrame, vendor: dict, quality: pd.DataFrame, path: Path,
     rec = findings["recoverable_usd_cents"].sum()
     exp = findings["expired_usd_cents"].sum()
     n_claims = int((findings["status"] == Status.CLAIMABLE).sum())
+    q = queue_summary(findings)
+    urgent_line = (f" <b>{usd(q['urgent_usd'] * 100)}</b> of it expires in the next 30 days "
+                   f"({q['urgent_claims']:,} claims): file those first." if q["urgent_claims"] else "")
     story = [
         Paragraph(f"Recovery report: {vendor['vendor_name']}", h1),
         Paragraph(f"Vendor code {vendor['vendor_code']} · data as of {as_of} · amounts in USD", small),
         Spacer(1, 10),
         Paragraph(f"We reviewed <b>{len(findings):,}</b> deductions and payments. <b>{usd(rec)}</b> can be "
                   f"disputed now across <b>{n_claims:,}</b> claims, each backed by your own shipping, invoice or "
-                  f"payment records. Another <b>{usd(exp)}</b> was recoverable but is past the dispute window.", body),
+                  f"payment records.{urgent_line} Another <b>{usd(exp)}</b> was recoverable but is past the "
+                  f"dispute window.", body),
         Paragraph("Recoverable by category", h2),
     ]
     s = summarize(findings)
@@ -167,13 +179,15 @@ def pdf(findings: pd.DataFrame, vendor: dict, quality: pd.DataFrame, path: Path,
     rows.append(["Total", f"{int(s['findings'].sum()):,}", f"{int(s['claimable'].sum()):,}", usd(rec), usd(exp)])
     story.append(table(rows, [2.6 * inch, 0.9 * inch, 0.9 * inch, 1.3 * inch, 1.2 * inch], right=(1, 2, 3, 4)))
 
-    top = findings[findings["status"] == Status.CLAIMABLE].nlargest(10, "recoverable_usd_cents")
+    top = findings[findings["status"] == Status.CLAIMABLE].nsmallest(10, "priority_rank")
     if len(top):
-        story += [Paragraph("Largest claims to file first", h2)]
-        rows = [["Reference", "Category", "Amount", "Dispute by", "Why"]] + [
+        story += [Paragraph("File these first", h2), Paragraph(
+            "Ranked by deadline (30 days or less first), then by expected value: amount times an assumed win "
+            "rate for the kind of evidence.", small), Spacer(1, 4)]
+        rows = [["Reference", "Category", "Amount", "Days left", "Why"]] + [
             [r.ref, CATEGORY_LABEL.get(Category(r.category), r.category), usd(r.recoverable_usd_cents),
-             r.dispute_deadline.strftime("%Y-%m-%d"), Paragraph(r.reason, cell)] for r in top.itertuples()]
-        story.append(table(rows, [1.15 * inch, 1.45 * inch, 0.85 * inch, 0.8 * inch, 2.75 * inch], right=(2,)))
+             f"{int(r.days_left)}{' !' if r.urgent else ''}", Paragraph(r.reason, cell)] for r in top.itertuples()]
+        story.append(table(rows, [1.15 * inch, 1.45 * inch, 0.85 * inch, 0.7 * inch, 2.85 * inch], right=(2, 3)))
 
     st = findings["status"].value_counts()
     story += [Paragraph("What we did not claim, and why", h2), Paragraph(
@@ -228,6 +242,7 @@ def write_all(findings: pd.DataFrame, vendors: pd.DataFrame, stats: pd.DataFrame
         "claims": int((findings["status"] == Status.CLAIMABLE).sum()),
         "recoverable_usd": round(findings["recoverable_usd_cents"].sum() / 100, 2),
         "expired_usd": round(findings["expired_usd_cents"].sum() / 100, 2),
+        **queue_summary(findings),
         "by_category": summarize(findings).reset_index().to_dict("records"),
         "by_status": findings["status"].value_counts().to_dict(),
     }

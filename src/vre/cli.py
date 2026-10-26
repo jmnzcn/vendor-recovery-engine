@@ -107,14 +107,45 @@ def run(observed: Path = typer.Argument(Path("data/world/observed"), help="Folde
                        f"{_usd(g['expired_usd_cents'].sum() / 100):>14}")
     typer.secho(f"  {'TOTAL':<28}{summary['claims']:>8,}{_usd(summary['recoverable_usd']):>16}"
                 f"{_usd(summary['expired_usd']):>14}", bold=True, fg=typer.colors.GREEN)
+    typer.secho(f"\n  Expiring within {policy.urgent_days} days: {_usd(summary['urgent_usd'])} in "
+                f"{summary['urgent_claims']:,} claims (top of the work queue)", fg=typer.colors.YELLOW)
+    typer.echo(f"  Expected value of all claims: {_usd(summary['expected_value_usd'])} (assumed win rates)")
     st = f["status"].value_counts()
-    typer.echo(f"\n  Not claimed: {st.get(Status.NOT_CLAIMABLE, 0):,} valid · "
+    typer.echo(f"  Not claimed: {st.get(Status.NOT_CLAIMABLE, 0):,} valid · "
                f"{st.get(Status.INSUFFICIENT_EVIDENCE, 0):,} insufficient evidence · "
                f"{st.get(Status.NEEDS_REVIEW, 0):,} ambiguous (review) · "
                f"{st.get(Status.ALREADY_RECOVERED, 0):,} already reversed")
     typer.echo(f"  Quarantined {int(stats['rows_quarantined'].sum()):,} rows · "
                f"{int(stats['duplicates_removed'].sum()):,} duplicate export rows merged")
     typer.secho(f"  Reports in {out}/ · {time.perf_counter() - t0:.1f} s total\n", fg=typer.colors.BRIGHT_BLACK)
+
+
+@app.command()
+def drafts(findings: Path = typer.Argument(Path("out/findings.parquet")),
+           vendors_csv: Path = typer.Option(Path("data/world/vendors.csv"), "--vendors"),
+           n: int = typer.Option(200, help="Claims to draft letters for (stratified by category)"),
+           out: Path = typer.Option(Path("out/drafts"), help="Where drafts and the verification report go"),
+           model: bool = typer.Option(None, "--model/--template",
+                                      help="Force Claude or the offline template (default: Claude if credentials)"),
+           ) -> None:
+    """Draft dispute letters (Claude or template) and verify every amount, ID and date in them."""
+    from vre.disputes import run as run_drafts
+
+    f = pd.read_parquet(findings)
+    names = pd.read_csv(vendors_csv).set_index("vendor_code")["vendor_name"].to_dict() if vendors_csv.exists() else {}
+    with step(f"Drafting and verifying {n} dispute letters"):
+        df, summary = run_drafts(f, names, n=n, use_model=model)
+    out.mkdir(parents=True, exist_ok=True)
+    df.to_json(out / "drafts.jsonl", orient="records", lines=True, force_ascii=False)
+    (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    typer.echo(f"  Drafted by {summary['source']}{' (' + summary['model'] + ')' if summary['model'] else ''}: "
+               f"{summary['passed']} of {summary['drafted']} passed verification, {summary['rejected']} rejected")
+    if summary["violations"]:
+        typer.echo("  Rejected for: " + ", ".join(f"{k} ({v})" for k, v in summary["violations"].items()))
+    typer.echo(f"  Injected errors caught by the verifier: {summary['mutations_caught']} of {summary['mutations']}")
+    if summary["input_tokens"]:
+        typer.echo(f"  Tokens {summary['input_tokens']:,} in / {summary['output_tokens']:,} out "
+                   f"(~${summary['cost_usd']:.2f})")
 
 
 @app.command()
@@ -133,7 +164,14 @@ def evaluate(findings: Path = typer.Argument(Path("out/findings.parquet")),
         typer.echo(f"  {k:<26}{ev[k]:>12.2%}")
     for k in ("recoverable_true_usd", "recovered_usd", "false_claim_usd"):
         typer.echo(f"  {k:<26}{_usd(ev[k]):>16}")
-    typer.echo(f"  ambiguous routed to review{ev['review_routed']:>8,} of {ev['review_true']:,}\n")
+    typer.echo(f"  ambiguous routed to review{ev['review_routed']:>8,} of {ev['review_true']:,}")
+    if "real_precision" in ev:
+        missed = sum(ev["real_missed_by_status_usd"].values())
+        typer.secho(f"  against what really happened: precision {ev['real_precision']:.2%} · "
+                    f"false claims {_usd(ev['real_false_claim_usd'])}", fg=typer.colors.CYAN)
+        typer.secho(f"    recall {ev['real_recall_usd']:.2%} · {_usd(missed)} real but not provable from the files",
+                    fg=typer.colors.CYAN)
+    typer.echo("")
     typer.echo(ev["by_category"][["category", "claimable_true", "precision", "recall", "recovered_usd",
                                    "false_claim_usd"]].to_string(index=False))
     if out:

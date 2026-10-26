@@ -80,6 +80,8 @@
   .bug .before { color: var(--s2); font-weight: 600; }
   .bug .after { color: var(--good); font-weight: 600; }
   .bug p { margin: 6px 0 0; color: var(--ink-2); }
+  .note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+  .letter { white-space: pre-wrap; font-size: 14px; background: var(--wash); border-radius: 8px; padding: 10px 12px; margin-top: 6px; }
   .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; font-size: 13.5px; }
   .flow div { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 10px 12px; position: relative; }
   .flow b { display: block; margin-bottom: 2px; }
@@ -114,6 +116,15 @@
   </section>
 
   <section>
+    <h2>File these first</h2>
+    <p class="lead">Every claim has a deadline. The work queue puts claims whose dispute window closes within 30 days first, then ranks by expected value: amount times an assumed win rate for that kind of evidence (configurable priors, to be replaced by a vendor's own dispute history).</p>
+    <div class="card">
+      <div class="legend"><span><i style="background:var(--s2)"></i>Window closes within 30 days</span><span><i style="background:var(--s1)"></i>Later</span></div>
+      <div id="deadlines"></div>
+    </div>
+  </section>
+
+  <section>
     <h2>Every deduction gets a verdict</h2>
     <p class="lead">Most deductions are valid and the engine says so. A claim is only made when the vendor's records prove it; when they can't, the finding says what is missing instead of guessing.</p>
     <div class="card">
@@ -138,12 +149,30 @@
   </section>
 
   <section>
-    <h2>Three real bugs the evaluation caught</h2>
+    <h2>When the evidence gets worse</h2>
+    <p class="lead">The same underlying world, with more and more proofs of delivery missing and references truncated or mistyped, scored against what <b>really</b> happened rather than what the files can prove. Precision is the share of claims that are true; recall is the share of real money recovered.</p>
+    <div class="card">
+      <div class="legend"><span><i style="background:var(--s1)"></i>Precision (claims that are true)</span><span><i style="background:var(--s2)"></i>Recall (real money recovered)</span></div>
+      <div id="robust"></div>
+      <p class="note" id="robust-note"></p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dispute letters drafted by AI, checked by code</h2>
+    <p class="lead">Claude drafts each letter from the facts of one finding (an offline template stands in when no API key is set). A deterministic verifier then requires every amount, document number and date in the letter to appear in those facts; a letter that fails is rejected. To prove the verifier works, each letter is re-checked with one error injected at a time.</p>
+    <div class="tiles" id="draft-tiles" style="margin-top:0"></div>
+    <div class="claims" id="letters"></div>
+  </section>
+
+  <section>
+    <h2>Four real bugs the evaluation caught</h2>
     <p class="lead">A perfect score on its own benchmark proves consistency, not truth. The value of the benchmark showed when it failed:</p>
-    <div class="bugs">
+    <div class="bugs" style="grid-template-columns:repeat(2,1fr)">
       <div class="bug"><h3>Paid invoices that looked unpaid</h3>Remittances quoting the PO number instead of the invoice number.<p><span class="before">94.95 % precision, $88,757 in false claims</span> → match payments by PO when that PO has a single invoice → <span class="after">100 %, $0</span></p></div>
       <div class="bug"><h3>European number formats</h3><code>1.234,50</code> was read as <code>1.2345</code> with no error; <code>31.12.2025</code> dates were rejected.<p><span class="before">98.01 % recall, $2,669 missed</span> → detect the decimal separator per column, per file → <span class="after">100 %</span></p></div>
-      <div class="bug"><h3>A typo two edits away</h3>Removing leading zeros turned PO <code>MJPYNQ05</code> into <code>MJPYNQ5</code>, so the typo <code>MJPYNQ0V</code> stopped matching. Found on the holdout run.<p><span class="before">5 wrong verdicts hidden by a rounded "100.00 %"</span> → fuzzy match on raw characters, print exact mismatch counts → <span class="after">0 of 112,330</span></p></div>
+      <div class="bug"><h3>A typo two edits away</h3>Removing leading zeros turned PO <code>MJPYNQ05</code> into <code>MJPYNQ5</code>, so the typo <code>MJPYNQ0V</code> stopped matching. Found on the holdout run.<p><span class="before">5 wrong verdicts hidden by a rounded "100.00 %"</span> → fuzzy match on raw characters, print exact mismatch counts → <span class="after">0 mismatches</span></p></div>
+      <div class="bug"><h3>An invented document number</h3>The letter verifier only checked identifiers with digits; PO and shipment numbers can be all letters, so an invented <code>QQUOGOZZ</code> passed.<p><span class="before">968 of 972 injected errors caught</span> → any token with a digit, a hyphen or 8+ capitals must come from the facts → <span class="after">all caught</span></p></div>
     </div>
   </section>
 
@@ -203,7 +232,7 @@ function init(D) {
   document.getElementById('tiles').innerHTML = [
     [usd(D.recoverable), `recoverable now across ${num(D.claims)} claims`],
     [usd(D.expired), 'lost to the dispute window'],
-    [num(D.rows), `rows from ${D.vendors} vendors, reconciled in about a minute`],
+    [usd(D.urgent_usd * 100), `expiring within 30 days: first in the work queue (${num(D.urgent_claims)} claims)`],
     [num(sc.rows_truth), `verdicts, all matching ground truth · ${usd(sc.false_claim_usd * 100)} in false claims`, 'good'],
   ].map(([b, s, c]) => `<div class="tile ${c || ''}"><b>${b}</b><span>${s}</span></div>`).join('');
 
@@ -283,9 +312,77 @@ function init(D) {
     sbc.map((r) => `<tr><td>${LABEL[r.category]}</td><td>${num(r.truth_rows)}</td><td>${num(r.claimable_true)}</td><td>${(r.precision * 100).toFixed(2)}%</td><td>${(r.recall * 100).toFixed(2)}%</td><td>${usd(r.recovered_usd * 100)}</td><td>${usd(r.false_claim_usd * 100)}</td></tr>`).join('')
   }<tr><td><b>All</b></td><td><b>${num(sc.rows_truth)}</b></td><td></td><td><b>${(sc.claimable_precision * 100).toFixed(2)}%</b></td><td><b>${(sc.claimable_recall * 100).toFixed(2)}%</b></td><td><b>${usd(sc.recovered_usd * 100)}</b></td><td><b>${usd(sc.false_claim_usd * 100)}</b></td></tr></tbody>`;
 
-  renderMoney(); renderStatus(); renderVendor();
+  function renderDeadlines() {
+    const M = D.by_deadline_month, W = widthOf('deadlines'), H = 230, L = 52, R = 10, T = 10, B = 40;
+    const max = Math.max(...M.map((m) => m.recoverable)) * 1.08, bw = (W - L - R) / M.length;
+    const y = (v) => T + (1 - v / max) * (H - T - B);
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Recoverable dollars by month the dispute window closes' });
+    const step = max > 20000000 ? 5000000 : max > 4000000 ? 1000000 : 500000;
+    for (let v = 0; v <= max; v += step) {
+      el('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: v ? 'var(--grid)' : 'var(--axis)' }, svg);
+      el('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'tick' }, svg).textContent = v ? '$' + v / 100000 + 'k' : '$0';
+    }
+    const every = Math.ceil(M.length / (W < 560 ? 4 : 8));
+    M.forEach((m, i) => {
+      const x = L + i * bw, h = y(0) - y(m.recoverable);
+      el('rect', { x: x + 2, y: y(m.recoverable), width: Math.max(1, bw - 4), height: Math.max(0, h), rx: 3, fill: m.urgent ? 'var(--s2)' : 'var(--s1)' }, svg);
+      if (i % every === 0) el('text', { x: x + bw / 2, y: H - 22, 'text-anchor': 'middle', class: 'tick' }, svg).textContent = m.month;
+      const hit = el('rect', { x, y: T, width: bw, height: H - T - B, class: 'hit' }, svg);
+      bindTip(hit, () => `<b>Window closes ${m.month}</b>${rows([['Claims', num(m.claims)], ['Recoverable', usd(m.recoverable, 2)], ['Within 30 days', num(m.urgent)]])}`);
+    });
+    const box = document.getElementById('deadlines'); box.innerHTML = ''; box.appendChild(svg);
+  }
+
+  function renderRobust() {
+    const R = D.robustness && D.robustness.levels;
+    if (!R) { const s = document.getElementById('robust'); if (s) s.closest('section').remove(); return; }
+    const W = widthOf('robust'), narrow = W < 560, H = 260, L = 46, Rm = narrow ? 70 : 120, T = 12, B = 46;
+    const xmax = Math.max(...R.map((r) => r.noise));
+    const x = (n) => L + n / xmax * (W - L - Rm), y = (v) => T + (1 - (v - 0.75) / 0.25) * (H - T - B);
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Precision and recall against reality as evidence degrades' });
+    [0.75, 0.8, 0.85, 0.9, 0.95, 1].forEach((v) => {
+      el('line', { x1: L, x2: W - Rm, y1: y(v), y2: y(v), stroke: v === 0.75 ? 'var(--axis)' : 'var(--grid)' }, svg);
+      el('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'tick' }, svg).textContent = Math.round(v * 100) + '%';
+    });
+    R.forEach((r) => { el('text', { x: x(r.noise), y: H - 26, 'text-anchor': 'middle', class: 'tick' }, svg).textContent = Math.round(r.pod_missing_rate * 100) + '%'; });
+    el('text', { x: L + (W - L - Rm) / 2, y: H - 6, 'text-anchor': 'middle' }, svg).textContent = narrow ? 'Shipments without POD →' : 'Shipments without a proof of delivery (references degrade alongside) →';
+    const line = (key, color, label) => {
+      el('polyline', { points: R.map((r) => `${x(r.noise)},${y(r[key])}`).join(' '), fill: 'none', stroke: color, 'stroke-width': 2.5 }, svg);
+      R.forEach((r) => el('circle', { cx: x(r.noise), cy: y(r[key]), r: 4, fill: color, stroke: 'var(--surface)', 'stroke-width': 2 }, svg));
+      const last = R[R.length - 1];
+      el('text', { x: x(last.noise) + 10, y: y(last[key]) + 4, class: 'val' }, svg).textContent = `${narrow ? '' : label + ' '}${(last[key] * 100).toFixed(1)}%`;
+    };
+    line('real_precision', 'var(--s1)', 'precision'); line('real_recall_usd', 'var(--s2)', 'recall');
+    R.forEach((r) => {
+      const hit = el('rect', { x: x(r.noise) - 18, y: T, width: 36, height: H - T - B, class: 'hit' }, svg);
+      bindTip(hit, () => `<b>${Math.round(r.pod_missing_rate * 100)}% of PODs missing</b>${rows([
+        ['Truncated references', Math.round(r.truncated_ref_rate * 100) + '%'], ['Mistyped POs', Math.round(r.typo_ref_rate * 100) + '%'],
+        ['Precision', (r.real_precision * 100).toFixed(2) + '%'], ['Recall', (r.real_recall_usd * 100).toFixed(1) + '%'],
+        ['False claims', usd(r.real_false_claim_usd * 100)], ['Lost to missing evidence', usd(r.missed_insufficient_usd * 100)],
+        ['Sent to review', usd(r.missed_review_usd * 100)]])}`);
+    });
+    const box = document.getElementById('robust'); box.innerHTML = ''; box.appendChild(svg);
+    const worst = R[R.length - 1];
+    document.getElementById('robust-note').innerHTML = `${D.robustness.config.seeds} seeds × ${R.length} levels, ${D.robustness.config.vendors} vendors each. False claims at every level: <b>${usd(R.reduce((a, r) => a + r.real_false_claim_usd, 0) * 100)}</b>. At the worst level, ${usd(worst.missed_insufficient_usd * 100)} of real money could not be proven (missing evidence) and ${usd(worst.missed_review_usd * 100)} went to review: the cheapest way to recover more is to collect carrier proofs of delivery, not to match more aggressively.`;
+  }
+
+  function renderDrafts() {
+    const d = D.drafts;
+    if (!d || !d.drafted) { const s = document.getElementById('letters'); if (s) s.closest('section').remove(); return; }
+    const by = d.source === 'claude' ? `Claude (${d.model})` : 'the offline template';
+    document.getElementById('draft-tiles').innerHTML = [
+      [`${num(d.passed)} / ${num(d.drafted)}`, `letters passed verification (drafted by ${by})`],
+      [`${num(d.mutations_caught)} / ${num(d.mutations)}`, 'injected errors caught by the verifier', 'good'],
+      [num(d.rejected), 'letters rejected (never sent)'],
+      [d.source === 'claude' ? usd(d.cost_usd * 100, 2) : '$0', d.source === 'claude' ? 'API cost for the batch' : 'API cost: run with a key to use Claude'],
+    ].map(([b, t, c]) => `<div class="tile ${c || ''}"><b>${b}</b><span>${t}</span></div>`).join('');
+    document.getElementById('letters').innerHTML = (d.samples || []).map((s) => `<div class="claim"><div><b>${esc(s.ref)}</b> · ${LABEL[s.category]} · <span style="color:var(--good)">verified</span></div><div></div><div class="letter" style="grid-column:1/-1">${esc(s.draft)}</div></div>`).join('')
+      + (d.source === 'claude' ? '' : '<p class="note">These samples come from the offline template. <code>vre drafts --model</code> with Anthropic credentials has Claude write them; the verifier and the mutation test are the same either way.</p>');
+  }
+
+  renderMoney(); renderDeadlines(); renderStatus(); renderVendor(); renderRobust(); renderDrafts();
   let lastW = innerWidth, timer;
-  addEventListener('resize', () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(timer); timer = setTimeout(() => { renderMoney(); renderStatus(); }, 150); });
+  addEventListener('resize', () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(timer); timer = setTimeout(() => { renderMoney(); renderDeadlines(); renderStatus(); renderRobust(); }, 150); });
 }
 </script>
 </body>
