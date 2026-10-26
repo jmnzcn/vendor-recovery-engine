@@ -180,7 +180,7 @@ pip install -e ".[dev]"
 vre generate data/world --vendors 170 --po-lines 1200000 --seed 2026   # ~2.5 min, ~2.7M rows
 vre run data/world/observed --out out                                   # reports in out/
 vre evaluate out/findings.parquet data/world/truth/truth.parquet
-vre drafts out/findings.parquet --n 200          # add --model to use Claude (needs ANTHROPIC_API_KEY)
+vre drafts out/findings.parquet --n 200          # --model uses Claude: pip install -e ".[ai]" + ANTHROPIC_API_KEY
 python scripts/robustness.py                     # the robustness curve (~8 min)
 pytest
 ```
