@@ -7,7 +7,7 @@
 ![pandas](https://img.shields.io/badge/pandas-pandera%20contracts-150458?logo=pandas&logoColor=white)
 ![Claude](https://img.shields.io/badge/Claude-drafts%20%2B%20verifier-D97757)
 ![tests](https://img.shields.io/badge/tests-pytest%20%2B%20hypothesis%20%2B%20golden-2EA44F)
-![License](https://img.shields.io/badge/license-MIT-blue)
+![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange)
 
 **▶ [Explore the results interactively](https://jmnzcn.github.io/vendor-recovery-engine/)** · [Results](#-results) · [How it decides](#%EF%B8%8F-how-it-decides) · [Robustness](#-when-the-evidence-gets-worse) · [AI letters](#%EF%B8%8F-dispute-letters-ai-drafts-code-verifies) · [Evaluation](#-evaluation-scored-against-ground-truth) · [Run it](#-run-it) · [Resumen en español](#-resumen-en-español)
 
@@ -225,6 +225,19 @@ Sobre un mundo sintético construido con datos reales (UCI Online Retail II y ti
 
 Las cartas de disputa las redacta Claude y las verifica un programa determinista, que atrapó 975 de 975 errores inyectados. La evaluación atrapó cuatro errores reales antes de publicar.
 
+**Licencia:** se puede leer, estudiar y usar sin fines comerciales. Cualquier uso comercial (incluido ofrecer recuperación de deducciones como servicio o producto) requiere una licencia comercial: neyfred@gmail.com.
+
 ---
 
-**Ney Fred Jiménez Campos** · [LinkedIn](https://www.linkedin.com/in/neyfred/) · [GitHub](https://github.com/jmnzcn) · MIT License
+## License
+
+**[PolyForm Noncommercial 1.0.0](LICENSE).** Free to read, study, run and modify for noncommercial
+purposes: personal projects, research, education, and evaluating it for hire. **Any commercial use,
+including offering deduction recovery as a service or product, needs a commercial license:**
+[neyfred@gmail.com](mailto:neyfred@gmail.com).
+
+Versions up to commit `c5bc9b3` (2026-10-26) were published under the MIT License.
+
+---
+
+**Ney Fred Jiménez Campos** · [LinkedIn](https://www.linkedin.com/in/neyfred/) · [GitHub](https://github.com/jmnzcn) · PolyForm Noncommercial · commercial licenses on request

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Reconciliation and recovery engine for Amazon Vendor Central deductions: messy files in, defensible claims out, every finding traceable to its source row."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "PolyForm-Noncommercial-1.0.0" }
 authors = [{ name = "Ney Fred Jiménez Campos" }]
 dependencies = [
   "pandas>=2.2",
