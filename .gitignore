@@ -13,3 +13,4 @@ data/raw/
 # Generated worlds and run outputs (re-create with `vre generate` / `vre run`)
 data/world*/
 out*/
+demo/
